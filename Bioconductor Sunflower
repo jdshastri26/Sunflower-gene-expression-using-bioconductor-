@@ -1,0 +1,159 @@
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+# Install the necessary Bioconductor packages if they aren't already installed
+BiocManager::install(c("DESeq2", "pheatmap", "EnhancedVolcano", "RColorBrewer", "ggplot2", "tximport"))
+
+# Load the necessary libraries
+library(DESeq2)
+library(pheatmap)
+library(EnhancedVolcano)
+library(RColorBrewer)
+library(ggplot2)
+
+# Load gene expression count data (genes as rows, samples as columns)
+countData <- read.csv("sunflower_gene_counts.csv", row.names = 1)
+
+# Load sample metadata (conditions and other sample information)
+colData <- read.csv("sunflower_sample_metadata.csv", row.names = 1)
+
+# Ensure sample names in metadata match those in the count matrix
+all(colnames(countData) == rownames(colData))
+
+
+if (!all(colnames(countData) %in% rownames(colData))) {
+    stop("Column names in countData do not match row names in colData!")
+}
+colData$condition <- factor(colData$condition)
+
+
+dds <- DESeqDataSetFromMatrix(countData = countData,
+                              colData = colData,
+                              design = ~ condition)
+
+# Keep genes with at least 10 reads total across all samples
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep, ]
+
+# Keep genes with at least 10 reads total across all samples
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep, ]
+
+
+# Run the DESeq function to perform normalization and model fitting
+dds <- DESeq(dds)
+
+# Extract normalized counts for exploratory analysis
+normalized_counts <- counts(dds, normalized = TRUE)
+
+
+# Apply variance-stabilizing transformation (VST)
+vsd <- vst(dds, blind = FALSE)
+
+# Plot PCA with samples colored by condition
+pca_plot <- plotPCA(vsd, intgroup = "condition")
+print(pca_plot)
+
+# Optionally save the PCA plot
+ggsave("sunflower_pca_plot.png", pca_plot)
+
+
+# Calculate pairwise sample distances
+sampleDists <- dist(t(assay(vsd)))
+
+# Convert distances to a matrix for heatmap plotting
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(colData$condition, rownames(colData), sep = " - ")
+colnames(sampleDistMatrix) <- rownames(sampleDistMatrix)
+
+# Generate the heatmap with appropriate clustering
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colorRampPalette(rev(brewer.pal(9, "Blues")))(255))
+
+
+# Perform differential expression analysis
+res <- results(dds)
+
+# Order results by adjusted p-value
+resOrdered <- res[order(res$padj), ]
+
+# Filter results to retain only those with an adjusted p-value < 0.05
+resSig <- subset(resOrdered, padj < 0.05)
+
+# Summary of significant results
+summary(res)
+
+
+# List the top 10 differentially expressed genes
+head(resOrdered, 10)
+
+
+# MA-plot with customizations
+plotMA(res, main = "MA-plot of Differential Expression in Sunflower", ylim = c(-2, 2))
+
+
+# Enhanced volcano plot for clear visualization of significant genes
+EnhancedVolcano(res,
+                lab = rownames(res),
+                x = 'log2FoldChange',
+                y = 'pvalue',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                title = 'Differential Expression in Sunflower',
+                subtitle = 'Condition A vs Condition B',
+                legendPosition = 'right',
+                caption = "Log2 fold-change vs adjusted p-value",
+                pointSize = 3.0,
+                labSize = 4.0,
+                col = c('grey30', 'forestgreen', 'royalblue', 'red2'),
+                colAlpha = 1.0,
+                legendLabSize = 12,
+                legendIconSize = 4.0,
+                drawConnectors = TRUE,
+                widthConnectors = 0.5)
+
+# Optionally save the volcano plot
+ggsave("sunflower_volcano_plot.png")
+
+
+
+
+# Select the top 20 differentially expressed genes based on adjusted p-value
+topGenes <- head(order(res$padj), 20)
+
+# Generate a heatmap of these top genes
+pheatmap(assay(vsd)[topGenes, ],
+         cluster_rows = TRUE,
+         show_rownames = TRUE,
+         cluster_cols = TRUE,
+         annotation_col = colData(dds),
+         color = colorRampPalette(brewer.pal(9, "RdYlBu"))(255),
+         scale = "row")
+
+# Optionally save the heatmap plot
+ggsave("sunflower_top_genes_heatmap.png")
+``}
+
+#### 8. Export Results for Further Analysis
+
+Finally, export the differential expression results to a CSV file for further analysis or reporting.
+
+```r
+# Export significant results (adjusted p-value < 0.05) to a CSV file
+write.csv(as.data.frame(resSig), file = "sunflower_significant_differential_expression_results.csv")
+
+# Also save the full results if needed
+write.csv(as.data.frame(resOrdered), file = "sunflower_full_differential_expression_results.csv")
+
+
+
+Summary of the Refined Workflow
+Data Preparation: Rigorous checks ensure data integrity before analysis.
+Pre-filtering: Removing low-expressed genes reduces noise and computational load.
+Normalization: Ensures that comparisons between samples are fair and robust.
+Quality Control: PCA and heatmaps provide insights into data structure and potential outliers.
+Differential Expression Analysis: Identifies genes with significant changes in expression, with clear reporting and inspection of top results.
+Visualization: Visual aids like MA-plots, volcano plots, and heatmaps help convey findings effectively.
+Exporting Results: Saves both significant results and the full dataset for transparency and further exploration.
